@@ -2,13 +2,55 @@ import sys
 import json
 import os
 from PyQt5.QtCore import QUrl, Qt, QObject, pyqtSlot
-from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QWidget,
+                            QTabWidget, QPushButton, QHBoxLayout, QStyle, QTabBar)
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage
 from PyQt5.QtWebEngineCore import QWebEngineUrlRequestInterceptor
 
 from flyff_browser.config import KeyPressConfig, get_key_config
 from flyff_browser.key_simulator import KeyPressSimulator
 from flyff_browser.ui.auto_press import AutoPressControls
+
+class CustomTabWidget(QTabWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setTabsClosable(True)
+        
+        # Create and add the new tab button
+        self.new_tab_button = QPushButton("+")
+        self.new_tab_button.setFixedSize(24, 24)
+        self.new_tab_button.setStyleSheet("""
+            QPushButton {
+                border: none;
+                background-color: transparent;
+                color: #666;
+                font-weight: bold;
+                font-size: 16px;
+            }
+            QPushButton:hover {
+                color: #000;
+            }
+        """)
+        self.new_tab_button.clicked.connect(self.parent().add_new_tab)
+        
+        # Add the button to the tab bar
+        self.tabBar().setDrawBase(False)  # Remove the base line of the tab bar
+        self.tabBar().setExpanding(False)  # Prevent tabs from expanding
+        self.tabBar().setElideMode(Qt.ElideRight)  # Elide text if it's too long
+        
+        # Add the button as a tab
+        self.addTab(QWidget(), "")  # Add an empty tab
+        self.tabBar().setTabButton(self.count() - 1, QTabBar.RightSide, self.new_tab_button)
+        self.tabBar().setTabEnabled(self.count() - 1, False)  # Disable the tab itself
+        
+        # Move the new tab button to the right side
+        self.tabBar().setMovable(False)  # Prevent tab movement
+        self.tabBar().setDocumentMode(True)  # Use document mode for better appearance
+        
+    def addTab(self, widget, label):
+        # Insert the new tab before the last tab (which contains the + button)
+        index = self.count() - 1
+        return super().insertTab(index, widget, label)
 
 class CustomWebPage(QWebEnginePage):
     def __init__(self, parent=None):
@@ -26,17 +68,10 @@ class FlyffBrowser(QMainWindow):
         self.setWindowTitle('FlyFF Universe Simple FTool')
         self.setGeometry(100, 100, 1024, 768)
 
-        # Create the web view with custom page
-        self.web_view = QWebEngineView()
-        self.web_page = CustomWebPage(self.web_view)
-        self.web_view.setPage(self.web_page)
+        # Create the tab widget
+        self.tab_widget = CustomTabWidget(self)
+        self.tab_widget.tabCloseRequested.connect(self.close_tab)
         
-        # Connect to URL changed signal
-        self.web_view.urlChanged.connect(self.on_url_changed)
-        
-        # Set initial URL
-        self.web_view.setUrl(QUrl("https://universe.flyff.com/play"))
-
         # Create auto-press controls
         self.auto_press_controls = AutoPressControls(self)
         self.addToolBar(Qt.RightToolBarArea, self.auto_press_controls)
@@ -46,16 +81,40 @@ class FlyffBrowser(QMainWindow):
 
         # Set up the main layout
         layout = QVBoxLayout()
-        layout.addWidget(self.web_view)
+        layout.addWidget(self.tab_widget)
 
         # Create a widget to hold the layout
         container = QWidget()
         container.setLayout(layout)
         self.setCentralWidget(container)
 
+        # Add the first tab
+        self.add_new_tab()
+
+    def add_new_tab(self):
+        """Add a new tab with a web view."""
+        web_view = QWebEngineView()
+        web_page = CustomWebPage(web_view)
+        web_view.setPage(web_page)
+        
+        # Connect to URL changed signal
+        web_view.urlChanged.connect(self.on_url_changed)
+        
+        # Set initial URL
+        web_view.setUrl(QUrl("https://universe.flyff.com/play"))
+        
+        # Add tab
+        index = self.tab_widget.addTab(web_view, "FlyFF Universe")
+        self.tab_widget.setCurrentIndex(index)
+
+    def close_tab(self, index):
+        """Close a tab."""
+        if self.tab_widget.count() > 1:  # Keep at least one tab
+            self.tab_widget.removeTab(index)
+
     def add_key_simulator(self, control_id: int):
         """Add a new key simulator for a control."""
-        self.key_simulators[control_id] = KeyPressSimulator(self.web_view)
+        self.key_simulators[control_id] = KeyPressSimulator(self.tab_widget.currentWidget())
 
     def remove_key_simulator(self, control_id: int):
         """Remove a key simulator."""
